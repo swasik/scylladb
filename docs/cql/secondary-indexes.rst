@@ -263,6 +263,40 @@ The following options are supported for vector indexes. All of them are optional
 +------------------------------+----------------------------------------------------------------------------------------------------------+---------------+
 
 
+.. _cassandra-sai-compatibility:
+
+Cassandra SAI Compatibility
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+ScyllaDB accepts the Cassandra ``StorageAttachedIndex`` (SAI) class name in ``CREATE CUSTOM INDEX``
+statements. SAI is the native Cassandra index type for vector search and is used by libraries such as
+`CassIO <https://cassio.org/>`_ and `LangChain <https://www.langchain.com/>`_.
+
+When ScyllaDB encounters an SAI class name on a **vector column**, the index is automatically
+created as a native ``vector_index``. The following class names are recognized:
+
+* ``org.apache.cassandra.index.sai.StorageAttachedIndex`` (exact case required)
+* ``StorageAttachedIndex`` (case-insensitive)
+* ``SAI`` (case-insensitive)
+
+Example::
+
+   -- Cassandra SAI statement accepted by ScyllaDB:
+   CREATE CUSTOM INDEX ON my_table (embedding)
+   USING 'org.apache.cassandra.index.sai.StorageAttachedIndex'
+   WITH OPTIONS = {'similarity_function': 'COSINE'};
+
+   -- Equivalent to:
+   CREATE CUSTOM INDEX ON my_table (embedding)
+   USING 'vector_index'
+   WITH OPTIONS = {'similarity_function': 'COSINE'};
+
+.. note::
+
+   SAI class names are only supported on vector columns. Using an SAI class name on a
+   non-vector column (e.g., ``text`` or ``int``) will result in an error. For non-vector
+   columns, use a secondary index instead.
+
 .. _drop-index-statement:
 
 DROP INDEX

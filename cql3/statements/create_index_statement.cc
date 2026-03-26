@@ -35,9 +35,11 @@
 #include "db/schema_tables.hh"
 #include "index/secondary_index_manager.hh"
 #include "types/concrete_types.hh"
+#include "types/vector.hh"
 #include "db/tags/extension.hh"
 #include "tombstone_gc_extension.hh"
 
+#include <boost/algorithm/string.hpp>
 #include <stdexcept>
 
 namespace cql3 {
@@ -114,6 +116,53 @@ static data_type type_for_computed_column(cql3::statements::index_target::target
         case index_target::target_type::collection_values:  return collection_values_type(collection_type);
         default: throw std::logic_error("reached regular values or full when only collection index target types were expected");
     }
+}
+
+// Cassandra SAI compatibility: detect the StorageAttachedIndex class name
+// used by Cassandra to create vector and metadata indexes.
+static bool is_sai_class_name(const sstring& class_name) {
+    return class_name == "org.apache.cassandra.index.sai.StorageAttachedIndex"
+        || boost::iequals(class_name, "storageattachedindex")
+        || boost::iequals(class_name, "sai");
+}
+
+// Returns true if the custom class name refers to a vector-capable index
+// (either ScyllaDB's native vector_index or Cassandra's SAI).
+static bool is_vector_capable_class(const sstring& class_name) {
+    return class_name == "vector_index" || is_sai_class_name(class_name);
+}
+
+// When the custom class is SAI, verify that at least one target is a
+// vector column and rewrite the class to ScyllaDB's native "vector_index".
+// Non-vector single-column targets and multi-column (local-index partition
+// key) targets are skipped — they are treated as filtering columns by
+// vector_index::check_target().
+static void maybe_rewrite_sai_to_vector_index(
+        const schema& schema,
+        const std::vector<::shared_ptr<index_target>>& targets,
+        index_specific_prop_defs& props) {
+    if (!props.custom_class || !is_sai_class_name(*props.custom_class)) {
+        return;
+    }
+    for (const auto& target : targets) {
+        auto* ident = std::get_if<::shared_ptr<column_identifier>>(&target->value);
+        if (!ident) {
+            // Multi-column target (local-index partition key) — skip.
+            continue;
+        }
+        auto cd = schema.get_column_definition((*ident)->name());
+        if (!cd) {
+            // Nonexistent column — skip; vector_index::validate() will catch it.
+            continue;
+        }
+        if (dynamic_cast<const vector_type_impl*>(cd->type.get())) {
+            props.custom_class = "vector_index";
+            return;
+        }
+    }
+    throw exceptions::invalid_request_exception(
+        "StorageAttachedIndex (SAI) is only supported on vector columns; "
+        "use a secondary index for non-vector columns");
 }
 
 view_ptr create_index_statement::create_view_for_index(const schema_ptr schema, const index_metadata& im,
@@ -265,8 +314,7 @@ create_index_statement::validate(query_processor& qp, const service::client_stat
 
     _idx_properties->validate();
 
-    // FIXME: This is ugly and can be improved.
-    const bool is_vector_index = _idx_properties->custom_class && *_idx_properties->custom_class == "vector_index";
+    const bool is_vector_index = _idx_properties->custom_class && is_vector_capable_class(*_idx_properties->custom_class);
     const bool uses_view_properties = _view_properties.properties()->count() > 0
             || _view_properties.use_compact_storage()
             || _view_properties.defined_ordering().size() > 0;
@@ -351,6 +399,8 @@ create_index_statement::validate_while_executing(data_dictionary::database db, l
     for (auto& raw_target : _raw_targets) {
         targets.emplace_back(raw_target->prepare(*schema));
     }
+
+    maybe_rewrite_sai_to_vector_index(*schema, targets, *_idx_properties);
 
     if (_idx_properties && _idx_properties->custom_class) {
         auto custom_index_factory = secondary_index::secondary_index_manager::get_custom_class_factory(*_idx_properties->custom_class);

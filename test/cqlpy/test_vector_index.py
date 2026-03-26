@@ -440,6 +440,28 @@ def test_sai_on_nonexistent_column(cql, test_keyspace, scylla_with_tablets):
             cql.execute(f"CREATE CUSTOM INDEX ON {table}(nonexistent) USING '{SAI_CLASS}'")
 
 
+def test_sai_vector_index_with_source_model(cql, test_keyspace, skip_without_tablets):
+    """The source_model option (used by CassIO to tag the embedding model)
+    should be accepted alongside similarity_function."""
+    schema = 'p int PRIMARY KEY, v vector<float, 3>'
+    with new_test_table(cql, test_keyspace, schema) as table:
+        cql.execute(
+            f"CREATE CUSTOM INDEX ON {table}(v) USING '{SAI_CLASS}' "
+            f"WITH OPTIONS = {{'similarity_function': 'COSINE', "
+            f"'source_model': 'ada002'}}"
+        )
+
+
+def test_sai_vector_index_source_model_only(cql, test_keyspace, skip_without_tablets):
+    """source_model as the sole option should also be accepted."""
+    schema = 'p int PRIMARY KEY, v vector<float, 3>'
+    with new_test_table(cql, test_keyspace, schema) as table:
+        cql.execute(
+            f"CREATE CUSTOM INDEX ON {table}(v) USING '{SAI_CLASS}' "
+            f"WITH OPTIONS = {{'source_model': 'my-embedding-model'}}"
+        )
+
+
 ###############################################################################
 # Tests for CDC with vector indexes
 #

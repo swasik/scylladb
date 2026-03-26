@@ -10,6 +10,9 @@ import pytest
 from .util import new_test_table, is_scylla, unique_name
 from cassandra.protocol import InvalidRequest, ConfigurationException
 
+# ScyllaDB-native vector index class name.
+VECTOR_INDEX_CLASS = 'vector_index'
+
 supported_filtering_types = [
     'ascii',
     'bigint',
@@ -48,14 +51,14 @@ unsupported_filtering_types = [
 def test_create_vector_search_index(cql, test_keyspace, scylla_only, skip_without_tablets):
     schema = 'p int primary key, v vector<float, 3>'
     with new_test_table(cql, test_keyspace, schema) as table:
-        cql.execute(f"CREATE CUSTOM INDEX ON {table}(v) USING 'vector_index'")
+        cql.execute(f"CREATE CUSTOM INDEX ON {table}(v) USING '{VECTOR_INDEX_CLASS}'")
 
 
 def test_create_vector_search_index_without_custom_keyword(cql, test_keyspace, skip_without_tablets):
     schema = 'p int primary key, v vector<float, 3>'
     with new_test_table(cql, test_keyspace, schema) as table:
         if is_scylla(cql):
-            custom_class = 'vector_index'
+            custom_class = VECTOR_INDEX_CLASS
         else:
             custom_class =  'sai'
         
@@ -78,23 +81,23 @@ def test_create_vector_search_index_on_nonvector_column(cql, test_keyspace, scyl
     schema = 'p int primary key, v int'
     with new_test_table(cql, test_keyspace, schema) as table:
         with pytest.raises(InvalidRequest, match="Vector indexes are only supported on columns of vectors of floats"):
-            cql.execute(f"CREATE CUSTOM INDEX ON {table}(v) USING 'vector_index'")
+            cql.execute(f"CREATE CUSTOM INDEX ON {table}(v) USING '{VECTOR_INDEX_CLASS}'")
 
 def test_create_vector_search_global_index_with_filtering_columns(cql, test_keyspace, scylla_only, skip_without_tablets):
     schema = 'p1 int, p2 int, c1 int, c2 int, v vector<float, 3>, f1 int, f2 int, primary key ((p1, p2), c1, c2)'
     with new_test_table(cql, test_keyspace, schema) as table:
-        cql.execute(f"CREATE CUSTOM INDEX ON {table}(v, f1, f2) USING 'vector_index'")
+        cql.execute(f"CREATE CUSTOM INDEX ON {table}(v, f1, f2) USING '{VECTOR_INDEX_CLASS}'")
 
 def test_create_vector_search_local_index_with_filtering_columns(cql, test_keyspace, scylla_only, skip_without_tablets):
     schema = 'p1 int, p2 int, c1 int, c2 int, v vector<float, 3>, f1 int, f2 int, primary key ((p1, p2), c1, c2)'
     with new_test_table(cql, test_keyspace, schema) as table:
-        cql.execute(f"CREATE CUSTOM INDEX ON {table}((p1, p2), v, f1, f2) USING 'vector_index'")
+        cql.execute(f"CREATE CUSTOM INDEX ON {table}((p1, p2), v, f1, f2) USING '{VECTOR_INDEX_CLASS}'")
 
 def test_create_vector_search_local_index_with_filtering_columns_on_nonvector_column(cql, test_keyspace, scylla_only, skip_without_tablets):
     schema = 'p1 int, p2 int, c1 int, c2 int, v int, f1 int, f2 int, primary key ((p1, p2), c1, c2)'
     with new_test_table(cql, test_keyspace, schema) as table:
         with pytest.raises(InvalidRequest, match="Vector indexes are only supported on columns of vectors of floats"):
-            cql.execute(f"CREATE CUSTOM INDEX ON {table}((p1, p2), v, f1, f2) USING 'vector_index'")
+            cql.execute(f"CREATE CUSTOM INDEX ON {table}((p1, p2), v, f1, f2) USING '{VECTOR_INDEX_CLASS}'")
 
 def test_create_vector_search_index_with_supported_and_unsupported_filtering_columns(cql, test_keyspace, scylla_only, skip_without_tablets):
     supported_columns = ', '.join([f's{idx} {typ}' for idx, typ in enumerate(supported_filtering_types)])
@@ -102,69 +105,69 @@ def test_create_vector_search_index_with_supported_and_unsupported_filtering_col
     schema = f'p int, c int, v vector<float, 3>, {supported_columns}, {unsupported_columns}, primary key (p, c)'
     with new_test_table(cql, test_keyspace, schema) as table:
         for idx in range(len(supported_filtering_types)):
-            cql.execute(f"CREATE CUSTOM INDEX global_idx ON {table}(v, s{idx}) USING 'vector_index'")
+            cql.execute(f"CREATE CUSTOM INDEX global_idx ON {table}(v, s{idx}) USING '{VECTOR_INDEX_CLASS}'")
             cql.execute(f"DROP INDEX {test_keyspace}.global_idx")
-            cql.execute(f"CREATE CUSTOM INDEX local_idx ON {table}((p), v, s{idx}) USING 'vector_index'")
+            cql.execute(f"CREATE CUSTOM INDEX local_idx ON {table}((p), v, s{idx}) USING '{VECTOR_INDEX_CLASS}'")
             cql.execute(f"DROP INDEX {test_keyspace}.local_idx")
         for idx in range(len(unsupported_filtering_types)):
             with pytest.raises(InvalidRequest, match=f"Unsupported vector index filtering column u{idx} type|Secondary indexes are not supported"):
-                cql.execute(f"CREATE CUSTOM INDEX global_idx ON {table}(v, u{idx}) USING 'vector_index'")
+                cql.execute(f"CREATE CUSTOM INDEX global_idx ON {table}(v, u{idx}) USING '{VECTOR_INDEX_CLASS}'")
             with pytest.raises(InvalidRequest, match=f"Unsupported vector index filtering column u{idx} type|Secondary indexes are not supported"):
-                cql.execute(f"CREATE CUSTOM INDEX local_idx ON {table}((p), v, u{idx}) USING 'vector_index'")
+                cql.execute(f"CREATE CUSTOM INDEX local_idx ON {table}((p), v, u{idx}) USING '{VECTOR_INDEX_CLASS}'")
 
 def test_create_vector_search_local_index_with_unsupported_partition_columns(cql, test_keyspace, scylla_only, skip_without_tablets):
     for filter_type in unsupported_filtering_types:
         schema = f'p {filter_type}, c int, v vector<float, 3>, f int, primary key (p, c)'
         with pytest.raises(InvalidRequest, match="Unsupported|Invalid"):
             with new_test_table(cql, test_keyspace, schema) as table:
-                cql.execute(f"CREATE CUSTOM INDEX ON {table}((p), v, f) USING 'vector_index'")
+                cql.execute(f"CREATE CUSTOM INDEX ON {table}((p), v, f) USING '{VECTOR_INDEX_CLASS}'")
 
 def test_create_vector_search_index_with_duplicated_columns(cql, test_keyspace, scylla_only, skip_without_tablets):
     schema = f'p int, c int, v vector<float, 3>, x int, primary key (p, c)'
     with new_test_table(cql, test_keyspace, schema) as table:
         with pytest.raises(InvalidRequest, match=f"Cannot create secondary index on partition key column p"):
-            cql.execute(f"CREATE CUSTOM INDEX global_idx ON {table}(v, p) USING 'vector_index'")
+            cql.execute(f"CREATE CUSTOM INDEX global_idx ON {table}(v, p) USING '{VECTOR_INDEX_CLASS}'")
         with pytest.raises(InvalidRequest, match=f"Duplicate column x in index target list"):
-            cql.execute(f"CREATE CUSTOM INDEX global_idx ON {table}(v, x, x) USING 'vector_index'")
+            cql.execute(f"CREATE CUSTOM INDEX global_idx ON {table}(v, x, x) USING '{VECTOR_INDEX_CLASS}'")
         with pytest.raises(InvalidRequest, match=f"Cannot create secondary index on partition key column p"):
-            cql.execute(f"CREATE CUSTOM INDEX local_idx ON {table}((p), v, p) USING 'vector_index'")
+            cql.execute(f"CREATE CUSTOM INDEX local_idx ON {table}((p), v, p) USING '{VECTOR_INDEX_CLASS}'")
         with pytest.raises(InvalidRequest, match=f"Duplicate column x in index target list"):
-            cql.execute(f"CREATE CUSTOM INDEX local_idx ON {table}((p), v, x, x) USING 'vector_index'")
+            cql.execute(f"CREATE CUSTOM INDEX local_idx ON {table}((p), v, x, x) USING '{VECTOR_INDEX_CLASS}'")
 
 def test_create_vector_search_index_with_bad_options(cql, test_keyspace, scylla_only, skip_without_tablets):
     schema = 'p int primary key, v vector<float, 3>'
     with new_test_table(cql, test_keyspace, schema) as table:
         with pytest.raises(InvalidRequest, match="Unsupported option"):
-            cql.execute(f"CREATE CUSTOM INDEX ON {table}(v) USING 'vector_index' WITH OPTIONS = {{'bad_option': 'bad_value'}}")
+            cql.execute(f"CREATE CUSTOM INDEX ON {table}(v) USING '{VECTOR_INDEX_CLASS}' WITH OPTIONS = {{'bad_option': 'bad_value'}}")
 
 def test_create_vector_search_index_with_bad_numeric_value(cql, test_keyspace, scylla_only, skip_without_tablets):
     schema = 'p int primary key, v vector<float, 3>'
     with new_test_table(cql, test_keyspace, schema) as table:
         for val in ['-1', '513']:
             with pytest.raises(InvalidRequest, match="out of valid range"):
-                cql.execute(f"CREATE CUSTOM INDEX ON {table}(v) USING 'vector_index' WITH OPTIONS = {{'maximum_node_connections': '{val}' }}") 
+                cql.execute(f"CREATE CUSTOM INDEX ON {table}(v) USING '{VECTOR_INDEX_CLASS}' WITH OPTIONS = {{'maximum_node_connections': '{val}' }}") 
         for val in ['dog', '123dog']:
             with pytest.raises(InvalidRequest, match="not an integer"):
-                cql.execute(f"CREATE CUSTOM INDEX ON {table}(v) USING 'vector_index' WITH OPTIONS = {{'maximum_node_connections': '{val}' }}") 
+                cql.execute(f"CREATE CUSTOM INDEX ON {table}(v) USING '{VECTOR_INDEX_CLASS}' WITH OPTIONS = {{'maximum_node_connections': '{val}' }}") 
         with pytest.raises(InvalidRequest, match="out of valid range"):
-            cql.execute(f"CREATE CUSTOM INDEX ON {table}(v) USING 'vector_index' WITH OPTIONS = {{'construction_beam_width': '5000' }}") 
+            cql.execute(f"CREATE CUSTOM INDEX ON {table}(v) USING '{VECTOR_INDEX_CLASS}' WITH OPTIONS = {{'construction_beam_width': '5000' }}") 
 
 def test_create_vector_search_index_with_bad_similarity_value(cql, test_keyspace, scylla_only, skip_without_tablets):
     schema = 'p int primary key, v vector<float, 3>'
     with new_test_table(cql, test_keyspace, schema) as table:
         with pytest.raises(InvalidRequest, match="Invalid value in option 'similarity_function'"):
-            cql.execute(f"CREATE CUSTOM INDEX ON {table}(v) USING 'vector_index' WITH OPTIONS = {{'similarity_function': 'bad_similarity_function'}}") 
+            cql.execute(f"CREATE CUSTOM INDEX ON {table}(v) USING '{VECTOR_INDEX_CLASS}' WITH OPTIONS = {{'similarity_function': 'bad_similarity_function'}}") 
 
 def test_create_vector_search_index_on_nonfloat_vector_column(cql, test_keyspace, scylla_only, skip_without_tablets):
     schema = 'p int primary key, v vector<int, 3>'
     with new_test_table(cql, test_keyspace, schema) as table:
         with pytest.raises(InvalidRequest, match="Vector indexes are only supported on columns of vectors of floats"):
-            cql.execute(f"CREATE CUSTOM INDEX ON {table}(v) USING 'vector_index'")
+            cql.execute(f"CREATE CUSTOM INDEX ON {table}(v) USING '{VECTOR_INDEX_CLASS}'")
 
 def test_no_view_for_vector_search_index(cql, test_keyspace, scylla_only, skip_without_tablets):
     schema = 'p int primary key, v vector<float, 3>'
     with new_test_table(cql, test_keyspace, schema) as table:
-        cql.execute(f"CREATE CUSTOM INDEX abc ON {table}(v) USING 'vector_index'")
+        cql.execute(f"CREATE CUSTOM INDEX abc ON {table}(v) USING '{VECTOR_INDEX_CLASS}'")
         result = cql.execute(f"SELECT * FROM system_schema.views WHERE keyspace_name = '{test_keyspace}' AND view_name = 'abc_index'")
         assert len(result.current_rows) == 0, "Vector search index should not create a view in system_schema.views"
     with new_test_table(cql, test_keyspace, schema) as table:
@@ -181,7 +184,7 @@ def test_describe_custom_index(cql, test_keyspace, skip_without_tablets):
         # Scylla doesn't support sai custom class.
         if is_scylla(cql):
             maybe_space = ''
-            custom_class = 'vector_index'
+            custom_class = VECTOR_INDEX_CLASS
         else:
             maybe_space = ' '
             custom_class =  'sai'
@@ -211,7 +214,7 @@ def test_vector_index_version_on_recreate(cql, test_keyspace, scylla_only, skip_
         version = str(cql.execute(base_table_version_query).one().version)
 
         # Create the vector index.
-        cql.execute(f"CREATE CUSTOM INDEX abc ON {table}(v) USING 'vector_index'")
+        cql.execute(f"CREATE CUSTOM INDEX abc ON {table}(v) USING '{VECTOR_INDEX_CLASS}'")
 
         # Fetch the index version.
         # It should be the same as the base table version before the index was created.
@@ -221,7 +224,7 @@ def test_vector_index_version_on_recreate(cql, test_keyspace, scylla_only, skip_
 
         # Drop and create new index with the same parameters.
         cql.execute(f"DROP INDEX {test_keyspace}.abc")
-        cql.execute(f"CREATE CUSTOM INDEX abc ON {table}(v) USING 'vector_index'")
+        cql.execute(f"CREATE CUSTOM INDEX abc ON {table}(v) USING '{VECTOR_INDEX_CLASS}'")
 
         # Check if the index version changed.
         result = cql.execute(index_version_query)
@@ -240,7 +243,7 @@ def test_vector_index_version_unaffected_by_alter(cql, test_keyspace, scylla_onl
         version = str(cql.execute(base_table_version_query).one().version)
 
         # Create the vector index.
-        cql.execute(f"CREATE CUSTOM INDEX abc ON {table}(v) USING 'vector_index'")
+        cql.execute(f"CREATE CUSTOM INDEX abc ON {table}(v) USING '{VECTOR_INDEX_CLASS}'")
 
         # Fetch the index version.
         # It should be the same as the base table version before the index was created.
@@ -262,12 +265,12 @@ def test_vector_index_version_fail_given_as_option(cql, test_keyspace, scylla_on
     with new_test_table(cql, test_keyspace, schema) as table:
         # Fail to create vector index with version option given by the user.
         with pytest.raises(InvalidRequest, match="Cannot specify index_version as a CUSTOM option"):
-            cql.execute(f"CREATE CUSTOM INDEX abc ON {table}(v) USING 'vector_index' WITH OPTIONS = {{'index_version': '18ad2003-05ea-17d9-1855-0325ac0a755d'}}")
+            cql.execute(f"CREATE CUSTOM INDEX abc ON {table}(v) USING '{VECTOR_INDEX_CLASS}' WITH OPTIONS = {{'index_version': '18ad2003-05ea-17d9-1855-0325ac0a755d'}}")
 
 def test_one_vector_index_on_column(cql, test_keyspace, skip_without_tablets):
     schema = "p int primary key, v vector<float, 3>"
     if is_scylla(cql):
-        custom_class = 'vector_index'
+        custom_class = VECTOR_INDEX_CLASS
     else:
         custom_class =  'sai'
     with new_test_table(cql, test_keyspace, schema) as table:
@@ -282,8 +285,8 @@ def test_two_same_name_indexes_on_different_tables_with_if_not_exists(cql, test_
     with new_test_table(cql, test_keyspace, schema) as table:
         schema = "p int primary key, v vector<float, 3>"
         with new_test_table(cql, test_keyspace, schema) as table2:
-            cql.execute(f"CREATE CUSTOM INDEX IF NOT EXISTS ann_index ON {table}(v) USING 'vector_index'")
-            cql.execute(f"CREATE CUSTOM INDEX IF NOT EXISTS ann_index ON {table2}(v) USING 'vector_index'")
+            cql.execute(f"CREATE CUSTOM INDEX IF NOT EXISTS ann_index ON {table}(v) USING '{VECTOR_INDEX_CLASS}'")
+            cql.execute(f"CREATE CUSTOM INDEX IF NOT EXISTS ann_index ON {table2}(v) USING '{VECTOR_INDEX_CLASS}'")
 
 ###############################################################################
 # Tests for CDC with vector indexes
@@ -325,7 +328,7 @@ def alter_cdc(cql, table, options):
 
 def create_index(cql, test_keyspace, table, column):
     idx_name = f"{column}_idx_{unique_name()}"
-    query = f"CREATE INDEX {idx_name} ON {table} ({column}) USING 'vector_index'"
+    query = f"CREATE INDEX {idx_name} ON {table} ({column}) USING '{VECTOR_INDEX_CLASS}'"
     try:
         cql.execute(query)
     except InvalidRequest as e:
@@ -344,7 +347,7 @@ def test_try_create_cdc_with_vector_search_enabled(scylla_only, cql, test_keyspa
         # - delta mode must be set to 'full' or postimage must be enabled.
 
         # Enable Vector Search by creating a vector index.
-        cql.execute(f"CREATE INDEX v_idx ON {table} (v) USING 'vector_index'")
+        cql.execute(f"CREATE INDEX v_idx ON {table} (v) USING '{VECTOR_INDEX_CLASS}'")
 
         # Allow creating CDC log table with default options.
         assert alter_cdc(cql, table, {'enabled': True})
@@ -377,7 +380,7 @@ def test_try_disable_cdc_with_vector_search_enabled(scylla_only, cql, test_keysp
     schema = "pk int primary key, v vector<float, 3>"
     with new_test_table(cql, test_keyspace, schema) as table:
         # Enable Vector Search by creating a vector index.
-        cql.execute(f"CREATE INDEX v_idx ON {table} (v) USING 'vector_index'")
+        cql.execute(f"CREATE INDEX v_idx ON {table} (v) USING '{VECTOR_INDEX_CLASS}'")
 
         # Disallow disabling CDC when Vector Search is enabled.
         with pytest.raises(InvalidRequest, match="Cannot disable CDC when Vector Search is enabled on the table"):
@@ -418,7 +421,7 @@ def test_try_enable_vector_search_with_cdc_disabled(scylla_only, cql, test_keysp
         # Disallow creating the vector index when CDC is explicitly disabled.
         assert alter_cdc(cql, table, {'enabled': False, 'ttl': 172800, 'postimage' : True})
         with pytest.raises(InvalidRequest, match="Cannot create the vector index when CDC is explicitly disabled."):
-            cql.execute(f"CREATE INDEX v_idx ON {table} (v) USING 'vector_index'")
+            cql.execute(f"CREATE INDEX v_idx ON {table} (v) USING '{VECTOR_INDEX_CLASS}'")
 
         # Allow creating the vector index when CDC is enabled again.
         assert alter_cdc(cql, table, {'enabled': True})
@@ -430,7 +433,7 @@ def test_try_enable_vector_search_with_cdc_disabled(scylla_only, cql, test_keysp
 def test_vector_search_when_tracing_is_enabled(cql, test_keyspace, scylla_only, skip_without_tablets):
     schema = "p int primary key, v vector<float, 3>"
     with new_test_table(cql, test_keyspace, schema) as table:
-        cql.execute(f"CREATE CUSTOM INDEX ON {table}(v) USING 'vector_index'")
+        cql.execute(f"CREATE CUSTOM INDEX ON {table}(v) USING '{VECTOR_INDEX_CLASS}'")
         with pytest.raises(InvalidRequest, match="Vector Store is disabled"):
             cql.execute(
                 f"SELECT * FROM {table} ORDER BY v ANN OF [0.2,0.3,0.4] LIMIT 1",
@@ -446,7 +449,7 @@ def test_vector_search_when_tracing_is_enabled(cql, test_keyspace, scylla_only, 
 def test_ann_query_with_pk_restriction(cql, test_keyspace, scylla_only, skip_without_tablets):
     schema = 'p int primary key, q int, v vector<float, 3>'
     with new_test_table(cql, test_keyspace, schema) as table:
-        cql.execute(f"CREATE CUSTOM INDEX ON {table}(v) USING 'vector_index'")
+        cql.execute(f"CREATE CUSTOM INDEX ON {table}(v) USING '{VECTOR_INDEX_CLASS}'")
         cql.execute(f"INSERT INTO {table} (p, q, v) VALUES (1, 1, [1.0, 1.0, 1.0])")
         cql.execute(f"INSERT INTO {table} (p, q, v) VALUES (2, 2, [1.0, 1.0, 1.0])")
         cql.execute(f"INSERT INTO {table} (p, q, v) VALUES (3, 3, [1.0, 1.0, 1.0])")
@@ -458,7 +461,7 @@ def test_ann_query_with_pk_restriction(cql, test_keyspace, scylla_only, skip_wit
 def test_ann_query_with_non_pk_restriction(cql, test_keyspace, scylla_only, skip_without_tablets):
     schema = 'p int primary key, q int, v vector<float, 3>'
     with new_test_table(cql, test_keyspace, schema) as table:
-        cql.execute(f"CREATE CUSTOM INDEX ON {table}(v) USING 'vector_index'")
+        cql.execute(f"CREATE CUSTOM INDEX ON {table}(v) USING '{VECTOR_INDEX_CLASS}'")
         cql.execute(f"INSERT INTO {table} (p, q, v) VALUES (1, 1, [1.0, 1.0, 1.0])")
         cql.execute(f"INSERT INTO {table} (p, q, v) VALUES (2, 2, [1.0, 1.0, 1.0])")
         cql.execute(f"INSERT INTO {table} (p, q, v) VALUES (3, 3, [1.0, 1.0, 1.0])")
